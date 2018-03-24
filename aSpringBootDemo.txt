@@ -1,0 +1,168 @@
+http://start.spring.io/
+
+group - com.kong.sboot
+artifact - aSpringBootDemo
+search for dependencies - web
+generate project
+put unziped project to workspace and open with eclipse
+
+open pom.xml and add dependencies
+//for database connection hibernate etc	
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		
+//for better managing whats happening in app
+//devtools will detect whenever cnahges in classpath or classes and very fast restart spring app to show you always //uptodate state of app and you dont need to restart app manualy
+		<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-devtools</artifactId>
+		</dependency>
+
+//very small light database h2
+//immediately starts console at - http://localhost:8080/h2-console if app running
+//Tip - Make sure that you use jdbc:h2:mem:testdb as JDBC URL.
+?(/src/main/resources/application.properties
+	# Enabling H2 Console
+	spring.h2.console.enabled=true)?
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+//You can also populate some data into student table by adding a file called data.sql
+	///src/main/resources/data.sql
+	//insert into student
+	//values(10001,'Ranga', 'E1234567');
+	//insert into student
+	//values(10002,'Ravi', 'A1234568');
+
+Q : How does H2 and Spring Boot combination work?
+First and most important thing - Spring Boot is intelligent.
+
+If you are talking to an in memory db, by default, it looks at the entities and creates the database and the tables.
+
+However, if you connect to a mysql database, Spring Boot knows that its a permanent database. By default, it expects you to set up the database, set up the tables and it uses the connection that you established.
+
+Q : How did the Spring Boot Application connect to the database H2?
+Its down to Spring Boot Auto Configuration!
+
+First thing you would need to understand is Spring Boot Auto Configuration.
+
+Here’s a good read
+
+http://www.springboottutorial.com/spring-boot-auto-configuration
+As far as H2 is concerned, as soon as Spring Boot sees H2 in the class path, it auto configures a data source similar to what you see below:
+
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+It knows that you are using an inmemory database H2 and it uses the default url if you don’t provide one.
+
+
+start app from main with - run as Java Application
+add subpackage events
+add new class GithubProject to events
+GithubProject is Entity and implements Serializable
+
+import java.io.Serializable;
+
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.Id;
+
+@Entity
+public class GithubProject implements Serializable{
+	@Id
+	@GeneratedValue
+	private Long id;
+
+	private String orgName;
+
+	@Column(unique = true)
+	private String repoName;
+
+	public GithubProject() {
+	}
+
+	public GithubProject(String orgName, String repoName) {
+		this.orgName = orgName;
+		this.repoName = repoName;
+	}
+
+	public Long getId() {
+		return id;
+	}
+
+	public String getOrgName() {
+		return orgName;
+	}
+
+	public void setOrgName(String orgName) {
+		this.orgName = orgName;
+	}
+
+	public String getRepoName() {
+		return repoName;
+	}
+
+	public void setRepoName(String repoName) {
+		this.repoName = repoName;
+	}
+
+	@Override
+	public String toString() {
+		return "GithubProject{" +
+				"id=" + id +
+				", orgName='" + orgName + '\'' +
+				", repoName='" + repoName + '\'' +
+				'}';
+	}
+
+}
+
+add new interface GithubProjectRepository to events
+GithubProjectRepository extends CrudRepository persisting GithubProjects and iDs
+
+import org.springframework.data.repository.CrudRepository;
+
+public interface GithubProjectRepository extends CrudRepository<GithubProject, Long> {
+
+	GithubProject findByRepoName(String repoName);
+}
+
+check db if our entity created http://localhost:8080/h2-console/
+
+to manage schema of our database easily add librari flyway
+
+in pom.xml
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+
+this will give error in app becasue flyway waiting for script of db creation
+so add migration scrip to resources
+package db.migration and file - V1.0.0__Init.sql (<--two underlining, not one because of format error)
+CREATE TABLE GITHUB_PROJECT(
+	id  IDENTITY NOT NULL PRIMARY KEY,
+	org_name  VARCHAR(50) NOT NULL,
+	repo_name  VARCHAR(50) NOT NULL UNIQUE
+);
+
+CREATE INDEX idx_repo_name
+ON GITHUB_PROJECT (repo_name);
+
+than to insert data to database by flyway just create
+package db.migration file - V1.0.1__Insert.sql
+INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-projects', 'spring-boot');
+INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-io', 'initializr');
+INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-io', 'sagan');
+
+now we have data in our db in table GITHUB_PROJECT and info about changes in table flyway
