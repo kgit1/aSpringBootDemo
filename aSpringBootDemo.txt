@@ -66,8 +66,9 @@ It knows that you are using an inmemory database H2 and it uses the default url 
 
 
 start app from main with - run as Java Application
-add subpackage events
-add new class GithubProject to events
+
+################################################################################################################
+add subpackage events and add to it class GithubProject to events
 GithubProject is Entity and implements Serializable
 
 import java.io.Serializable;
@@ -139,6 +140,8 @@ public interface GithubProjectRepository extends CrudRepository<GithubProject, L
 
 check db if our entity created http://localhost:8080/h2-console/
 
+
+########################################################################################################
 to manage schema of our database easily add librari flyway
 
 in pom.xml
@@ -165,4 +168,658 @@ INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-projects', 'sprin
 INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-io', 'initializr');
 INSERT INTO GITHUB_PROJECT(ORG_NAME,REPO_NAME) values ('spring-io', 'sagan');
 
+http://localhost:8080/h2-console/
 now we have data in our db in table GITHUB_PROJECT and info about changes in table flyway
+
+##########################################################################################################
+add package github and add class RepositoryEvents to it
+
+RepositoryEvents constructor annotated with annotation @JsonCreator - helping deserializing jsonObject when json entity field's names not matching POJO field's names
+http://www.baeldung.com/jackson-annotations
+
+import java.time.OffsetDateTime;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class RepositoryEvent {
+
+	private final Type type;
+
+	private final OffsetDateTime creationTime;
+
+	private final Actor actor;
+
+	private final Issue issue;
+
+	@JsonCreator
+	public RepositoryEvent(@JsonProperty("event") String type,
+			@JsonProperty("created_at") OffsetDateTime creationTime,
+			@JsonProperty("actor") Actor actor,
+			@JsonProperty("issue") Issue issue) {
+		this.type = Type.valueFrom(type);
+		this.creationTime = creationTime;
+		this.actor = actor;
+		this.issue = issue;
+	}
+
+	public Type getType() {
+		return type;
+	}
+
+	public OffsetDateTime getCreationTime() {
+		return creationTime;
+	}
+
+	public Actor getActor() {
+		return actor;
+	}
+
+	public Issue getIssue() {
+		return issue;
+	}
+
+	public enum Type {
+
+		CLOSED("closed"),
+		REOPENED("reopened"),
+		SUBSCRIBED("subscribed"),
+		UNSUBSCRIBED("unsubscribed"),
+		MERGED("merged"),
+		REFERENCED("referenced"),
+		MENTIONED("mentioned"),
+		ASSIGNED("assigned"),
+		UNASSIGNED("unassigned"),
+		LABELED("labeled"),
+		UNLABELED("unlabeled"),
+		MILESTONED("milestoned"),
+		DEMILESTONED("demilestoned"),
+		RENAMED("renamed"),
+		LOCKED("locked"),
+		UNLOCKED("unlocked"),
+		HEAD_REF_DELETED("head_ref_deleted"),
+		HEAD_REF_RESTORED("head_ref_restored"),
+		CONVERTED_NOTE_TO_ISSUE("converted_note_to_issue"),
+		MOVED_COLUMNS_IN_PROJECT("moved_columns_in_project");
+
+		private String type;
+
+		Type(String type) {
+			this.type = type;
+		}
+
+		static Type valueFrom(String type) {
+			for (Type value : values()) {
+				if (type.equals(value.type)) {
+					return value;
+				}
+			}
+			throw new IllegalArgumentException(
+					"'" + type + "' is not a valid event type");
+		}
+	}
+
+}
+
+################################################################################################################
+
+add class Issue to github package
+package com.kong.sboot.aSpringBootDemo.github;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class Issue {
+
+	private final String htmlUrl;
+
+	private final int number;
+
+	private final String title;
+
+	@JsonCreator
+	public Issue(@JsonProperty("html_url") String htmlUrl,
+			@JsonProperty("number") int number, @JsonProperty("title") String title) {
+		this.htmlUrl = htmlUrl;
+		this.number = number;
+		this.title = title;
+	}
+
+	public String getHtmlUrl() {
+		return htmlUrl;
+	}
+
+	public int getNumber() {
+		return number;
+	}
+
+	public String getTitle() {
+		return title;
+	}
+}
+
+
+#############################################################################################################
+
+add class actor to github package
+
+package com.kong.sboot.aSpringBootDemo.github;
+
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class Actor {
+
+	private final String login;
+
+	private final String avatarUrl;
+
+	private final String htmlUrl;
+
+	@JsonCreator
+	public Actor(@JsonProperty("login") String login,
+			@JsonProperty("avatar_url") String avatarUrl, @JsonProperty("html_url") String htmlUrl) {
+		this.login = login;
+		this.avatarUrl = avatarUrl;
+		this.htmlUrl = htmlUrl;
+	}
+
+	public String getLogin() {
+		return login;
+	}
+
+	public String getAvatarUrl() {
+		return avatarUrl;
+	}
+
+	public String getHtmlUrl() {
+		return htmlUrl;
+	}
+}
+
+
+
+##################################################################################################################3
+
+add class GithubClient which will fetch data from github API
+
+package com.kong.sboot.aSpringBootDemo.github;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.spring.demo.issuesdashboard.GithubProperties;
+
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.stereotype.Component;
+import org.springframework.util.Base64Utils;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestTemplate;
+
+@Component
+public class GithubClient {
+
+	private final RestTemplate restTemplate;
+
+	private static final String EVENT_ISSUES_URL = "https://api.github.com/repos/{owner}/{repo}/issues/events";
+
+	public GithubClient(RestTemplateBuilder builder, GithubProperties properties, MeterRegistry meterRegistry) {
+
+		this.restTemplate = builder
+				.additionalInterceptors(new GithubAppTokenInterceptor(properties.getToken()))
+				.additionalInterceptors(new MetricsInterceptor(meterRegistry))
+				.build();
+	}
+
+	public ResponseEntity<RepositoryEvent[]> fetchEvents(String orgName, String repoName) {
+		return this.restTemplate.getForEntity(EVENT_ISSUES_URL, RepositoryEvent[].class, orgName, repoName);
+	}
+
+	@Cacheable("events")
+	public List<RepositoryEvent> fetchEventsList(String orgName, String repoName) {
+		return Arrays.asList(fetchEvents(orgName, repoName).getBody());
+	}
+
+
+	private static class GithubAppTokenInterceptor implements ClientHttpRequestInterceptor {
+
+		private final String token;
+
+		GithubAppTokenInterceptor(String token) {
+			this.token = token;
+		}
+
+		@Override
+		public ClientHttpResponse intercept(HttpRequest httpRequest, byte[] bytes,
+				ClientHttpRequestExecution clientHttpRequestExecution) throws IOException {
+			if (StringUtils.hasText(this.token)) {
+				byte[] basicAuthValue = this.token.getBytes(StandardCharsets.UTF_8);
+				httpRequest.getHeaders().set(HttpHeaders.AUTHORIZATION,
+						"Basic " + Base64Utils.encodeToString(basicAuthValue));
+			}
+			return clientHttpRequestExecution.execute(httpRequest, bytes);
+		}
+
+	}
+
+	private static class MetricsInterceptor implements ClientHttpRequestInterceptor {
+
+		private final AtomicInteger gauge;
+
+		public MetricsInterceptor(MeterRegistry meterRegistry) {
+			this.gauge = meterRegistry.gauge("github.ratelimit.remaining", new AtomicInteger(0));
+		}
+
+		@Override
+		public ClientHttpResponse intercept(HttpRequest httpRequest, byte[] bytes,
+				ClientHttpRequestExecution clientHttpRequestExecution) throws IOException {
+			ClientHttpResponse response = clientHttpRequestExecution.execute(httpRequest, bytes);
+			this.gauge.set(Integer.parseInt(response.getHeaders().getFirst("X-RateLimit-Remaining")));
+			return response;
+		}
+	}
+}
+
+
+########################################################################################################
+
+add EventsControler to events package
+
+add @Controller annotation
+
+inject inside
+private final GithubProjectRepository repository;
+	private final GithubClient client;
+
+and create constructor with them 
+
+inside add endpoint for mapping by adding
+@GetMappint("/events) annotation
+than @ResponceBody to method fetchEvents
+
+package com.kong.sboot.aSpringBootDemo.events;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import com.kong.sboot.aSpringBootDemo.github.GithubClient;
+import com.kong.sboot.aSpringBootDemo.github.RepositoryEvent;
+
+@Controller
+public class EventsController {
+	
+	private final GithubProjectRepository repository;
+	private final GithubClient client;	
+
+	public EventsController(GithubProjectRepository repository, GithubClient client) {
+		super();
+		this.repository = repository;
+		this.client = client;
+	}
+
+
+
+	@GetMapping("events/{repoName}")
+	@ResponseBody
+	public RepositoryEvent[] fetchEvents(@PathVariable String repoName) {
+		//add part with GithubProject project = to secure that this.repository is GithubProject
+			GithubProject project = this.repository.findByRepoName(repoName);
+			
+			return this.client.fetchEvents(project.getOrgName(), project.getRepoName()).getBody();
+	}
+
+}
+
+##########################################################################################################
+
+now check result at http://localhost:8080/events/spring-boot
+you must get pretty json answer
+
+##########################################################################################################
+
+to have ability to make more specific request through fetchEvents?
+
+add to root java package class GithubProperties to define our own properties, simple POJO
+which will take values from application.properties file at the resources
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties("github")//means this pojo related to github namespace in application.properties
+@Validated //tells spring you want to validate this bean, in our case github.token=test which 
+//means token field in this bean equals "test", and app throws error that token field not matches pattern "\\w+:\\w+" 
+public class GithubProperties {	
+	/*
+	 * Github API token("user:sampletoken")
+	 */
+	@Pattern(regexp="\\w+:\\w+")
+	private String token;	
+
+	public String getToken() {
+		return token;
+	}
+
+	public void setToken(String token) {
+		this.token = token;
+	}
+
+}
+
+than add this property by @EnableConfigurationProperties annotation in app main class
+
+than spring will take care to work with pointed property in our case - GithubProperties.class
+
+import org.springframework.boot.SpringApplication;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import org.springframework.boot.autoconfigure.domain.EntityScan;
+
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+
+
+
+@SpringBootApplication
+
+@EnableConfigurationProperties(GithubProperties.class)
+
+public class ASpringBootDemoApplication {
+
+
+	
+public static void main(String[] args) {
+		
+SpringApplication.run(ASpringBootDemoApplication.class, args);
+	
+
+}
+}
+
+
+
+##################################################################################################################
+
+add configuration proccesor
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-configuration-processor</artifactId>
+		<optional>true</optional>
+	</dependency>
+
+which will look through your project at compile time and will look at all classes and will make meta-data for all classes in target->classes->meta-inf  <- not in eclipse?
+
+
+##################################################################################################################
+comment in application.properties github.token=test - to stop it crashing our app
+
+add to GithubClient class
+//basic rest template intercepter looking at the token and if token is there
+//will create value from it and will encode it and set with authorization header
+private static class GithubAppTokenInterceptor implements ClientHttpRequestInterceptor {
+
+		private final String token;
+
+		GithubAppTokenInterceptor(String token) {
+			this.token = token;
+		}
+
+	
+		@Override
+		public ClientHttpResponse intercept(HttpRequest httpRequest, byte[] bytes,
+				ClientHttpRequestExecution clientHttpRequestExecution) throws IOException {
+			if (StringUtils.hasText(this.token)) {
+				byte[] basicAuthValue = this.token.getBytes(StandardCharsets.UTF_8);
+				httpRequest.getHeaders().set(HttpHeaders.AUTHORIZATION,
+						"Basic " + Base64Utils.encodeToString(basicAuthValue));
+			}
+			return clientHttpRequestExecution.execute(httpRequest, bytes);
+		}
+
+
+#################################################################################################################
+
+now it works but we dont have enough information about app, we event dont know was token sended or not
+so add spring actuator to get to useful endpoint like health etc
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
+http://localhost:8080/actuator
+now here we see 3 endpoints: self, health, info
+
+to have more endpoints - add to application.properties
+management.endpoints.web.exposure.include=* <--to get expose all endpoints, or you can type which you need
+
+http://localhost:8080/actuator/configprops - here we check our app properties
+
+to see more health details than just "UP" add at application.properties
+management.endpoint.health.show-details=ALWAYS 
+
+or we can implement our own custom health indicator – which can collect any type of custom health data specific to the application and automatically expose it through the /health endpoint
+
+
+import java.io.IOException;
+
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.http.ResponseEntity;
+
+import com.kong.sboot.aSpringBootDemo.github.GithubClient;
+import com.kong.sboot.aSpringBootDemo.github.RepositoryEvent;
+
+public class GithubPropertiesIndicator implements HealthIndicator{
+
+	private final GithubClient githubClient;	
+	
+	public GithubPropertiesIndicator(GithubClient githubClient) {
+		this.githubClient = githubClient;
+	}
+
+
+
+	@Override
+	public Health health() {
+		try {
+			ResponseEntity<RepositoryEvent[]>response= this.githubClient.fetchEvents("spring-projects", "spring.name");
+		if(response.getStatusCode().is2xxSuccessful()) {
+			return Health.up().build();
+		}else {
+			return Health.down().build();
+		}
+		}catch (Exception e) {
+			return Health.down(e).build();
+		}
+	}
+
+}
+
+#################################################################################################################
+
+now lets ad UI to our app
+with help of thymeleaf and some other libs
+
+add
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		
+		<dependency>
+			<groupId>org.webjars.npm</groupId>
+			<artifactId>bulma</artifactId>
+			<version>0.6.0</version>
+			<scope>runtime</scope>
+		</dependency>
+		
+		<dependency>
+			<groupId>org.webjars.npm</groupId>
+			<artifactId>font-awesome</artifactId>
+			<version>4.7.0</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.webjars.bower</groupId>
+			<artifactId>timeago.js</artifactId>
+			<version>3.0.0</version>
+			<scope>runtime</scope>
+		</dependency>
+
+#################################################################################################################
+
+add dashboard.html to resources.templates
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Github Dashboard</title>
+
+    <link data-th-href="@{/webjars/bulma/0.6.0/css/bulma.css}" rel="stylesheet">
+    <link rel="stylesheet" data-th-href="@{/webjars/font-awesome/4.7.0/css/font-awesome.min.css}"/>
+    <script data-th-src="@{/webjars/timeago.js/3.0.0/dist/timeago.js}"></script>
+</head>
+<body>
+<section class="hero is-primary is-bold">
+    <div class="hero-body">
+        <div class="container">
+            <h1 class="title">
+                <i class="fa fa-github-square" aria-hidden="true"></i>&nbsp;Github Dashboard
+            </h1>
+        </div>
+    </div>
+</section>
+<section data-th-each="entry : ${entries}" class="section">
+    <div class="container">
+        <h1 class="title">[[${entry.project.orgName}]] / [[${entry.project.repoName}]]</h1>
+        <table class="table is-hoverable is-fullwidth">
+            <thead>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Issue title</th>
+            <th>Time</th>
+            </thead>
+            <tbody>
+            <tr data-th-each="event : ${entry.events}">
+                <td><a data-th-href="${event.actor.htmlUrl}">[[${event.actor.login}]]</a></td>
+                <td><code>[[${event.type}]]</code></td>
+                <td><span data-th-if="${event.issue}"><a
+                        data-th-href="${event.issue.htmlUrl}">[[${event.issue.title}]]</a></span></td>
+                <td>
+                    <time data-th-attr="datetime=${event.creationTime}">[[${event.creationTime}]]</time>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+<script>
+    var timeagoInstance = timeago();
+    var nodes = document.querySelectorAll('time');
+    timeagoInstance.render(nodes, 'en_US');
+</script>
+</body>
+</html>
+
+################################################################################################################
+
+to get repository events as list, not as ResponceEntity as we have at this moment - add new method to GithubClient.class, which converts our ResponceEntity to ArrayList
+
+	public List<RepositoryEvent> fetchEventsList(String orgName, String repoName){
+		
+		return Arrays.asList(fetchEvents(orgName, repoName).getBody());
+	}
+
+################################################################################################################
+
+to help serializing json responce?
+add to package events - class DashboardEntry
+
+import java.util.List;
+
+
+import io.spring.demo.issuesdashboard.github.RepositoryEvent;
+
+
+public class DashboardEntry {
+
+	
+
+private final GithubProject project;
+
+
+	
+private final List<RepositoryEvent> events;
+
+
+	
+public DashboardEntry(GithubProject project, List<RepositoryEvent> events) {
+
+		this.project = project;
+
+		this.events = events;
+
+	}
+
+
+
+	public GithubProject getProject() {
+
+		return project;
+
+	}
+
+
+
+	public List<RepositoryEvent> getEvents() {
+
+		return events;
+
+	}
+
+}
+
+################################################################################################################
+
+
+add new controller to EventsController
+
+@GetMapping("/")
+	public String dashboard(Model model) {
+		List<DashboardEntry> entries = StreamSupport
+				.stream(this.repository.findAll().spliterator(), true)
+				.map(p -> new DashboardEntry(p, client.fetchEventsList(p.getOrgName(), p.getRepoName())))
+				.collect(Collectors.toList());
+		model.addAttribute("entries", entries);
+		return "dashboard";
+	}
+
+	@GetMapping("/admin")
+	public String admin(Model model) {
+		model.addAttribute("projects", repository.findAll());
+		return "admin";
+	}
+
+###############################################################################################################
+
+
+
+
+
+
+https://www.youtube.com/watch?v=aA4tfBGY6jY
