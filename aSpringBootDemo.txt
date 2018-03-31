@@ -1061,28 +1061,42 @@ than override configure method to give or limit roles on resources
 	protected void configure(HttpSecurity http) throws Exception {
 
 		http.csrf().disable().authorizeRequests()
-		.anyRequest().authenticated()
-				.requestMatchers(EndpointRequest.to("info")).permitAll()
-				.requestMatchers(EndpointRequest.to("info", "health")).hasRole("ADMIN")
+				// any rules that come after the rule that matches are never reached. Generally
+				// when writing the rules
+				// for authenticated requests, the more specific rule will come first.
+				.requestMatchers(EndpointRequest.to("info", "health")).anonymous()
 				.requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ACTUATOR")
 				.requestMatchers(PathRequest.toStaticResources().atCommonLocations()).permitAll()
 				// limits admin role only for /admin resources
-				.antMatchers("/admin").hasRole("ADMIN")
-				.antMatchers("/actuator")
-				.hasRole("ACTUATOR")
+				.antMatchers("/user*").permitAll().antMatchers("/admin").hasRole("ADMIN").antMatchers				("/actuator")
+				.hasRole("ACTUATOR").antMatchers("/events/**").hasRole("USER")
 				
+				// must be last in auth chain because if earlier - app checking rules and once
+				// spotted this - applies
+				// to any request if any role authorised
+
+				.anyRequest().authenticated()
 				// gives all resources permission for all
 				.antMatchers("/**").permitAll()
-				.antMatchers("/login").permitAll()
-				.anyRequest().authenticated()
 				
+				.and().logout().logoutRequestMatcher(new AntPathRequestMatcher				("/logout")).deleteCookies("JSESSIONID")
+				.invalidateHttpSession(true).clearAuthentication(true).logoutSuccessUrl("/login").and				().formLogin()
+				.loginProcessingUrl("/login").defaultSuccessUrl("/")
+				
+				// basic http auth popup
+				.and().httpBasic();
+				
+
+				// .antMatchers("/login").permitAll()
+				// .anyRequest().authenticated()
+
 				// .and() //HTTP basic Authentication only for API
 				// .antMatcher("/api/**").httpBasic()
 				// Login Form configuration for all others
 				// .and().formLogin().loginPage("/login").permitAll()
 
 				// all logout tries not logging our, redirecting to success but still logged in
-				//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+				// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 				// Logout Form configuration
 				// The default is that accessing the URL
 				// * "/logout" will log the user out by invalidating the HTTP Session, cleaning
@@ -1096,20 +1110,63 @@ than override configure method to give or limit roles on resources
 				// .and().logout().logoutRequestMatcher(new
 				// AntPathRequestMatcher("/logout")).deleteCookies("JSESSIONID")
 				// .invalidateHttpSession(true).clearAuthentication(true).logoutSuccessUrl("/loged.out")
-				.and().logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout")).logoutSuccessUrl("/login")
-				.and().formLogin().loginProcessingUrl("/login").defaultSuccessUrl("/")
-
+				
 				// .and().logout().logoutUrl("/logout").logoutSuccessUrl("/actuator").permitAll()
 
 				// .and().logout().logoutRequestMatcher(new
 				// AntPathRequestMatcher("/logout")).logoutSuccessUrl("/actuator")
 				// .deleteCookies("JSESSIONID").invalidateHttpSession(true).clearAuthentication(true)
-
-				// basic http auth popup
-				.and().httpBasic();
+				
 	}
 
 ##################################################################################################################
+
+app NOT WORKING with this!!!!!
+(must be jdk9 or tomcat with support - will be working out hte box in future spring boot versions)
+to add ssl key to up - put it to resources and configure in application.properties
+
+server.port=8443
+server.ssl.key-store=classpath:keystore.jks
+server.ssl.key-store-password=password
+server.ssl.key-password=secret
+server.hhtp2.enabled=true
+##################################################################################################################
+
+to get current user name
+
+	@RequestMapping(value="/username", method = RequestMethod.GET)
+	@ResponseBody
+	public String currentUserPrincipal(Principal principal) {
+		return principal.getName();
+	}
+	and http://localhost:8080/username	
+	
+	or
+
+	@RequestMapping(value="/user", method = RequestMethod.GET)
+	@ResponseBody
+	public String currentUserAuthentication(Authentication authentication){
+		return authentication.getName();
+	}
+	and http://localhost:8080/user
+
+##################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

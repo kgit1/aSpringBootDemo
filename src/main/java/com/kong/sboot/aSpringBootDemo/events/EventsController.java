@@ -1,14 +1,18 @@
 package com.kong.sboot.aSpringBootDemo.events;
 
+import java.security.Principal;
 import java.util.List;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 import com.kong.sboot.aSpringBootDemo.github.GithubClient;
@@ -57,5 +61,18 @@ public class EventsController {
 	public String login(Model model) {
 		return "login";
 		}
+	
+
+	@RequestMapping(value="/username", method = RequestMethod.GET)
+	@ResponseBody
+	public String currentUserPrincipal(Principal principal) {
+		return principal.getName();
+	}	
+	
+	@RequestMapping(value="/user", method = RequestMethod.GET)
+	@ResponseBody
+	public String currentUserAuthentication(Authentication authentication){
+		return authentication.getName();
+	}
 
 }
