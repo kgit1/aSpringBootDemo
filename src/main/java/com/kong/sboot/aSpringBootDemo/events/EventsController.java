@@ -52,5 +52,10 @@ public class EventsController {
 		model.addAttribute("projects", repository.findAll());
 		return "admin";
 	}
+	
+	@GetMapping("/login")
+	public String login(Model model) {
+		return "login";
+		}
 
 }

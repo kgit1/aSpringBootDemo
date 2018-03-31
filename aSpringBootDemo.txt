@@ -817,6 +817,303 @@ add new controller to EventsController
 
 ###############################################################################################################
 
+to handle error responses
+add error folder to templates
+add 4xx.html to handle all 4xx errors
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Error</title>
+    <link data-th-href="@{/webjars/bulma/0.6.0/css/bulma.css}" rel="stylesheet">
+    <link rel="stylesheet" data-th-href="@{/webjars/font-awesome/4.7.0/css/font-awesome.min.css}"/>
+</head>
+<body>
+<div class="columns">
+    <div class="column is-half is-offset-one-quarter">
+        <section class="section">
+            <h2 class="title">[[${status}]] - [[${error}]]</h2>
+            <div class="box">
+                <article class="media">
+                    <div class="media-left">
+                        <span class="is-size-1">🦄</span>
+                    </div>
+                    <div class="media-content">
+                        <div class="content">
+                            <p>
+                                <strong>Unicorn</strong>
+                                <small>@unicorn</small>
+                                <small>2 seconds ago</small>
+                                <br>
+                                Ooops! Something went wrong.
+                            </p>
+                        </div>
+                        <nav class="level is-mobile">
+                            <div class="level-left">
+                                <a class="level-item">
+                                    <span class="icon is-small"><i class="fa fa-reply"></i></span>
+                                </a>
+                                <a class="level-item">
+                                    <span class="icon is-small"><i class="fa fa-retweet"></i></span>
+                                </a>
+                                <a class="level-item">
+                                    <span class="icon is-small"><i class="fa fa-heart"></i></span>
+                                </a>
+                            </div>
+                        </nav>
+                        <article class="media">
+                            <div class="media-left">
+                                <span class="is-size-1">🐼</span>
+                            </div>
+                            <div class="media-content">
+                                <div class="content">
+                                    <p>
+                                        <strong>Just a Panda</strong>
+                                        <small>@sadpanda</small>
+                                        <small>just now</small>
+                                        <br>
+                                        Oh no... :-(
+                                        <br>
+                                        Just got a [[${status}]] [[${error}]]
+                                    </p>
+                                </div>
+                                <nav class="level is-mobile">
+                                    <div class="level-left">
+                                        <a class="level-item">
+                                            <span class="icon is-small"><i class="fa fa-reply"></i></span>
+                                        </a>
+                                        <a class="level-item">
+                                            <span class="icon is-small"><i class="fa fa-retweet"></i></span>
+                                        </a>
+                                        <a class="level-item">
+                                            <span class="icon is-small"><i class="fa fa-heart"></i></span>
+                                        </a>
+                                    </div>
+                                </nav>
+                            </div>
+                        </article>
+                    </div>
+                </article>
+            </div>
+        </section>
+    </div>
+</div>
+</body>
+</html>
+
+test it - http://localhost:8080/asda
+
+###################################################################################################################
+
+use http://localhost:8080/actuator/metrics to get list of metrics to check app metrics
+than use like http://localhost:8080/actuator/metrics/system.cpu.count
+
+##################################################################################################################
+
+
+to add own metric open our @Component GithubClient and Interceptor for metrics
+it using MeterRegistry to create new meter, we call it github.ratelimit.remain, and create new AtomicInteger for it, this will be the value which keeps track of the remaining calls
+
+//intercepter looking at response, get remaining requests number from header "X-RateLimit-Remaining"
+	//and add it to github.ratelimit.remaining value
+private static class MetricsInterceptor implements ClientHttpRequestInterceptor {
+
+		private final AtomicInteger gauge;
+
+		public MetricsInterceptor(MeterRegistry meterRegistry) {
+			this.gauge = meterRegistry.gauge("github.ratelimit.remaining", new AtomicInteger(0));
+		}
+
+		@Override
+		public ClientHttpResponse intercept(HttpRequest httpRequest, byte[] bytes,
+				ClientHttpRequestExecution clientHttpRequestExecution) throws IOException {
+			ClientHttpResponse response = clientHttpRequestExecution.execute(httpRequest, bytes);
+			this.gauge.set(Integer.parseInt(response.getHeaders().getFirst("X-RateLimit-Remaining")));
+			return response;
+		}
+	}
+
+
+than inject it to constructor 
+public GithubClient(RestTemplateBuilder builder, GithubProperties properties, MeterRegistry meterRegistry) {
+
+		this.restTemplate = builder.additionalInterceptors(new GithubAppTokenInterceptor(properties.getToken()))
+				.additionalInterceptors(new MetricsInterceptor(meterRegistry)).build();
+	}
+
+
+and now it is checkable at
+http://localhost:8080/actuator/metrics/github.ratelimit.remaining
+
+##################################################################################################################
+
+Security
+
+add security starter
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+that tells app that we want to secure it
+if we do that by default we not only get default user "user" with default password shown in console(which we can change) but we also secures all app by default
+
+add admin.html to templates
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Github Dashboard</title>
+
+    <link data-th-href="@{/webjars/bulma/0.6.0/css/bulma.css}" rel="stylesheet">
+    <link rel="stylesheet" data-th-href="@{/webjars/font-awesome/4.7.0/css/font-awesome.min.css}"/>
+    <script data-th-src="@{/webjars/timeago.js/3.0.0/dist/timeago.js}"></script>
+</head>
+<body>
+<section class="hero is-primary is-bold">
+    <div class="hero-body">
+        <div class="container">
+            <h1 class="title">
+                <i class="fa fa-github-square" aria-hidden="true"></i>&nbsp;Github Dashboard Admin
+            </h1>
+        </div>
+    </div>
+</section>
+<section class="section">
+    <form>
+        <div data-th-each="project : ${projects}" class="field is-horizontal is-grouped">
+            <div class="field-body">
+                <div class="field">
+                    <p class="control is-expanded">
+                        <input class="input" type="text" data-th-value="${project.orgName}" disabled>
+                    </p>
+                </div>
+                <div class="field">
+                    <p class="control is-expanded">
+                        <input class="input" type="text" data-th-value="${project.repoName}" disabled>
+                    </p>
+                </div>
+                <div class="control">
+                    <button class="button is-danger">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+</section>
+<section class="section">
+    <h2 class="title">Add a new project</h2>
+    <form>
+        <div class="field is-horizontal is-grouped">
+            <div class="field-body">
+                <div class="field">
+                    <p class="control is-expanded">
+                        <input class="input" type="text" placeholder="Organization">
+                    </p>
+                </div>
+                <div class="field">
+                    <p class="control is-expanded">
+                        <input class="input" type="text" placeholder="Repository">
+                    </p>
+                </div>
+                <div class="control">
+                    <button class="button is-primary">
+                        Add
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+</section>
+</body>
+</html>
+
+
+add mapping for admin to controler
+
+@GetMapping("/admin")
+	public String admin(Model model) {
+		model.addAttribute("projects", repository.findAll());
+		return "admin";
+	}
+
+################################################################################################################
+
+to express our security needs better add class WebSecurityConfiguration to apps root
+add annotation @Configuration and extend WebSecurityConfigurerAdapter
+add method to handle security roles with @Bean annotation 
+	@Bean
+	public InMemoryUserDetailsManager inMemoryUserDetailsManager() {
+		return new InMemoryUserDetailsManager(
+				User.withDefaultPasswordEncoder().username("user1").password("password1").authorities("ROLE_USER")
+						.build(),
+				User.withDefaultPasswordEncoder().username("admin1").password("admin1").authorities("ROLE_ACTUATOR", "ROLE_USER", "ROLE_ADMIN")
+						.build());
+	}
+
+than override configure method to give or limit roles on resources
+@Override
+	protected void configure(HttpSecurity http) throws Exception {
+
+		http.csrf().disable().authorizeRequests()
+		.anyRequest().authenticated()
+				.requestMatchers(EndpointRequest.to("info")).permitAll()
+				.requestMatchers(EndpointRequest.to("info", "health")).hasRole("ADMIN")
+				.requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ACTUATOR")
+				.requestMatchers(PathRequest.toStaticResources().atCommonLocations()).permitAll()
+				// limits admin role only for /admin resources
+				.antMatchers("/admin").hasRole("ADMIN")
+				.antMatchers("/actuator")
+				.hasRole("ACTUATOR")
+				
+				// gives all resources permission for all
+				.antMatchers("/**").permitAll()
+				.antMatchers("/login").permitAll()
+				.anyRequest().authenticated()
+				
+				// .and() //HTTP basic Authentication only for API
+				// .antMatcher("/api/**").httpBasic()
+				// Login Form configuration for all others
+				// .and().formLogin().loginPage("/login").permitAll()
+
+				// all logout tries not logging our, redirecting to success but still logged in
+				//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+				// Logout Form configuration
+				// The default is that accessing the URL
+				// * "/logout" will log the user out by invalidating the HTTP Session, cleaning
+				// up any
+				// * {@link #rememberMe()} authentication that was configured, clearing the
+				// * {@link SecurityContextHolder}, and then redirect to "/login?success".
+				// .and().logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout"))
+				// .logoutSuccessUrl("/").deleteCookies("JSESSIONID")
+				// .invalidateHttpSession(true);
+
+				// .and().logout().logoutRequestMatcher(new
+				// AntPathRequestMatcher("/logout")).deleteCookies("JSESSIONID")
+				// .invalidateHttpSession(true).clearAuthentication(true).logoutSuccessUrl("/loged.out")
+				.and().logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout")).logoutSuccessUrl("/login")
+				.and().formLogin().loginProcessingUrl("/login").defaultSuccessUrl("/")
+
+				// .and().logout().logoutUrl("/logout").logoutSuccessUrl("/actuator").permitAll()
+
+				// .and().logout().logoutRequestMatcher(new
+				// AntPathRequestMatcher("/logout")).logoutSuccessUrl("/actuator")
+				// .deleteCookies("JSESSIONID").invalidateHttpSession(true).clearAuthentication(true)
+
+				// basic http auth popup
+				.and().httpBasic();
+	}
+
+##################################################################################################################
+
+
+
+
 
 
 
