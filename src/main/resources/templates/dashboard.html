@@ -10,8 +10,18 @@
     <script data-th-src="@{/webjars/timeago.js/3.0.0/dist/timeago.js}"></script>
 </head>
 <body>
-
-<form th:action="@{/logout}" method="post">
+ 
+<div>
+ <button><a href="user">USER</a></button>
+ <button><a href="username">USERNAME</a></button>
+ <button><a href="admin">ADMIN</a></button>
+ <button><a href="actuator">actuators</a></button>
+ <button><a href="actuator/health">health</a></button>
+ <button><a href="actuator/info">info</a></button>
+ <button><a href="login">LOGIN</a></button>
+ </div>
+ 
+ <form th:action="@{/logout}" method="post">
      <input type="submit" value="Log out"/>
  </form>
  

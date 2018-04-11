@@ -20,7 +20,7 @@ public class WebSecurityConfiguration extends WebSecurityConfigurerAdapter {
 		return new InMemoryUserDetailsManager(
 				User.withDefaultPasswordEncoder().username("user1").password("password1").authorities("ROLE_USER")
 						.build(),
-				User.withDefaultPasswordEncoder().username("admin1").password("admin111").authorities("ROLE_ADMIN")
+				User.withDefaultPasswordEncoder().username("admin1").password("admin111").authorities("ROLE_ADMIN","ROLE_ACTUATOR","ROLE_USER")
 						.build(),
 
 				User.withDefaultPasswordEncoder().username("act1").password("act111").authorities("ROLE_ACTUATOR")
@@ -56,36 +56,23 @@ public class WebSecurityConfiguration extends WebSecurityConfigurerAdapter {
 				// basic http auth popup
 				.and().httpBasic();
 				
-
-				// .antMatchers("/login").permitAll()
-				// .anyRequest().authenticated()
-
-				// .and() //HTTP basic Authentication only for API
-				// .antMatcher("/api/**").httpBasic()
-				// Login Form configuration for all others
-				// .and().formLogin().loginPage("/login").permitAll()
-
-				// all logout tries not logging our, redirecting to success but still logged in
-				// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-				// Logout Form configuration
-				// The default is that accessing the URL
-				// * "/logout" will log the user out by invalidating the HTTP Session, cleaning
-				// up any
-				// * {@link #rememberMe()} authentication that was configured, clearing the
-				// * {@link SecurityContextHolder}, and then redirect to "/login?success".
-				// .and().logout().logoutRequestMatcher(new AntPathRequestMatcher("/logout"))
-				// .logoutSuccessUrl("/").deleteCookies("JSESSIONID")
-				// .invalidateHttpSession(true);
-
-				// .and().logout().logoutRequestMatcher(new
-				// AntPathRequestMatcher("/logout")).deleteCookies("JSESSIONID")
-				// .invalidateHttpSession(true).clearAuthentication(true).logoutSuccessUrl("/loged.out")
-				
-				// .and().logout().logoutUrl("/logout").logoutSuccessUrl("/actuator").permitAll()
-
-				// .and().logout().logoutRequestMatcher(new
-				// AntPathRequestMatcher("/logout")).logoutSuccessUrl("/actuator")
-				// .deleteCookies("JSESSIONID").invalidateHttpSession(true).clearAuthentication(true)
+//		@Override
+//		protected void configure(HttpSecurity http) throws Exception {
+//			http.authorizeRequests()
+//					.antMatchers("/admin/**").hasRole("ADMIN")
+//					.antMatchers("/", "/news", "/login**", "/css/**", "/img/**", "/webjars/**", "/bootstrap/**").permitAll()
+//					.anyRequest().authenticated()
+//					.and()
+//				.csrf()
+//					.ignoringAntMatchers("/admin/h2-console/*")
+//					.and()
+//				.logout()
+//					.logoutSuccessUrl("/")
+//					.permitAll()
+//					.and()
+//				.headers()
+//					.frameOptions().sameOrigin();
+//		}
 				
 	}
 
